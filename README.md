@@ -14,6 +14,8 @@ This repository is the official implementation of the paper:
 [*Ming-Hsuan Yang*](https://faculty.ucmerced.edu/mhyang/)
 NeurIPS, 2023.
 
+**[New!] We have released the code for [Telling Left from Right](https://github.com/Junyi42/geoaware-sc), a follow-up with better semantic correspondence.**
+
 ![teaser](assets/teaser.png)
 
 ## Visual Results
