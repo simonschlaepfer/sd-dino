@@ -21,6 +21,7 @@ import cv2
 import time
 from qrpca.decomposition import svdpca, qrpca  
 from gpu_pca import IncrementalPCAonGPU
+import pickle
 
 
 MASK = True
@@ -43,7 +44,7 @@ TIMESTEP = 100
 img_size = 840 if DINOV2 else 244
 normalization_mean = (0.485, 0.456, 0.406) if DINOV2 else (0.5, 0.5, 0.5)
 normalization_std = (0.229, 0.224, 0.225) if DINOV2 else (0.5, 0.5, 0.5)
-n_components=4 # the first component is to seperate the object from the background
+# n_components=4 # the first component is to seperate the object from the background
 
 
 DIST = 'l2'
@@ -60,7 +61,7 @@ DIST = 'l2'
 #     prep_img = transform(img)
 #     return prep_img
 
-def compute_features(model, aug, extractor, views_batch, target_shape, only_dino):
+def compute_features(model, aug, extractor, views_batch, target_shape, only_dino, use_prefit_pca=False, n_components=4, add_cls_token=False):
     FUSE_DINO = True
     img_size = 840 if DINOV2 else 244
     model_dict={'small':'dinov2_vits14',
@@ -76,11 +77,24 @@ def compute_features(model, aug, extractor, views_batch, target_shape, only_dino
         layer = 39
     facet = 'token' if DINOV2 else 'key'
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    pca = sklearnPCA(n_components=n_components)
+
+    pca_load_time = time.time()
+    if use_prefit_pca:
+        with open('/cluster/home/simschla/master_thesis/NOM-Diffusion/pca/pca_dino_model_501_7.pkl', 'rb') as file:
+            pca = pickle.load(file)
+    else:
+        pca = sklearnPCA(n_components=n_components)
+    # print("pca load time", time.time()-pca_load_time)
+
+    if add_cls_token:
+        with open('/cluster/home/simschla/master_thesis/NOM-Diffusion/pca/pca_class_token_model_501_6.pkl', 'rb') as file:
+            pca_cls = pickle.load(file)
+
     # pca = svdpca(n_component_ratio=n_components,device=device)
     # pca = qrpca(n_component_ratio=n_components,device=device)
     # pca = IncrementalPCAonGPU(n_components=n_components)
-    batch_list = []
+    feature_batch_list = []
+    cls_token_batch_list = []
     for idx in range(len(views_batch)):
         batch_start_time = time.time()
         input_imgs = views_batch[idx].to(device)
@@ -91,7 +105,9 @@ def compute_features(model, aug, extractor, views_batch, target_shape, only_dino
         with torch.no_grad():
             if FUSE_DINO:
                 start_extract_time = time.time()
-                img_desc_dino = extractor.extract_descriptors(normalized_imgs, layer, facet)
+                img_desc_dino = extractor.extract_descriptors(normalized_imgs, layer, facet, include_cls=True)
+                img_desc_dino = img_desc_dino[:, :, 1:, :]
+                cls_token = img_desc_dino[:, :, 0, :]
                 end_extract_time = time.time()
                 # print("Total feature extraction:", end_extract_time-start_extract_time)
 
@@ -99,21 +115,29 @@ def compute_features(model, aug, extractor, views_batch, target_shape, only_dino
             if DIST == 'l1' or DIST == 'l2':
                 if FUSE_DINO:
                     img_desc_dino = img_desc_dino / img_desc_dino.norm(dim=-1, keepdim=True)
+                    cls_token = cls_token / cls_token.norm(dim=-1, keepdim=True)
+
+            if add_cls_token:
+                cls_token_reduced = pca_cls.transform(cls_token.squeeze().cpu().numpy())[:, :n_components-1]
+                cls_token_reduced =  np.expand_dims(cls_token_reduced, axis=1)
+            else:
+                cls_token_reduced = None
             
             mask = (input_imgs.mean(1)>0).to(torch.float32).to(device)
-
             mask_pca_start_time = time.time()
-            feature_imgs = vis_pca_mask_all(img_desc_dino, mask, target_shape, pca)
+            feature_imgs, cls_token_img = vis_pca_mask_all(img_desc_dino, mask, target_shape, use_prefit_pca, pca, n_components, cls_token_reduced)
             mask_pca_end_time = time.time()
             # print("mask pca time:", mask_pca_end_time-mask_pca_start_time)
             feature_img_list = [feature_imgs[i] for i in range(feature_imgs.shape[0])]
-            batch_list.append(feature_img_list)
+            feature_batch_list.append(feature_img_list)
+            if add_cls_token:
+                cls_token_batch_list.append(cls_token_img)
         batch_end_time = time.time()
         # print("feature creation per sample:", batch_end_time-batch_start_time)
-    return batch_list
+    return feature_batch_list, cls_token_batch_list
 
 
-def vis_pca_mask_all(feature, mask, target_shape, pca):
+def vis_pca_mask_all(feature, mask, target_shape, use_prefit_pca, pca, n_components, cls_token_reduced):
     num_patches = int(math.sqrt(feature.shape[-2]))
     channel_dim = feature.shape[-1]
     feature = feature.squeeze(1)
@@ -127,27 +151,39 @@ def vis_pca_mask_all(feature, mask, target_shape, pca):
     feature_processed_stacked=feature_processed.reshape(-1,feature_processed.shape[-1])
     
     start_time = time.time()
-    feature1_n_featuren = pca.fit_transform(feature_processed_stacked.cpu().numpy()) # shape (7200,3)
+
+    if not use_prefit_pca:
+        feature1_n_featuren = pca.fit_transform(feature_processed_stacked.cpu().numpy())[:, 1:n_components] # shape (7200,3)
+    else:
+        feature1_n_featuren = pca.transform(feature_processed_stacked.cpu().numpy())[:, 1:n_components]
     # feature1_n_featuren = pca.fit_transform(feature_processed_stacked)
     # pca.fit(feature_processed_stacked)
     # feature1_n_featuren = pca.transform(feature_processed_stacked)
     # feature1_n_featuren = feature1_n_featuren.cpu().numpy()
     end_time = time.time()
     # print("Dimension reduction PCA:", end_time-start_time)
-    features_reduced=feature1_n_featuren.reshape(feature_processed.shape[0],feature_processed.shape[1],n_components)
+    features_reduced=feature1_n_featuren.reshape(feature_processed.shape[0],feature_processed.shape[1],n_components-1)
 
-    min_vals = features_reduced[:, :, 1:].min(axis=1)
-    max_vals = features_reduced[:, :, 1:].max(axis=1)
+    min_vals = features_reduced.min(axis=1)
+    max_vals = features_reduced.max(axis=1)
     diff = max_vals - min_vals
     diff[diff == 0] = 1 # Avoid division by zero in case of constant columns
-    features_reduced[:, :, 1:] = (features_reduced[:, :, 1:] - min_vals[:, np.newaxis, :]) / diff[:, np.newaxis, :]
+    features_reduced = (features_reduced - min_vals[:, np.newaxis, :]) / diff[:, np.newaxis, :]
+    if cls_token_reduced is not None:
+        cls_token_reduced = (cls_token_reduced - min_vals[:, np.newaxis, :]) / diff[:, np.newaxis, :]
+        cls_token_clipped = np.clip(cls_token_reduced, 0, 1)
+        cls_token_clipped = np.median(cls_token_clipped, axis=0)
+        # cls_token_clipped = np.tile(cls_token_clipped, (9, 1, 1))
+        cls_token_clipped = cls_token_clipped[:, np.newaxis, :]
+        cls_token_img = (cls_token_clipped*255).astype(np.uint8)
+        cls_token_img = np.repeat(cls_token_img, target_shape[1], axis=1)
+        cls_token_img = np.repeat(cls_token_img[:, :, np.newaxis, :], target_shape[0], axis=2)
 
-    feature_resized = features_reduced[:, :, 1:4].reshape(features_reduced.shape[0],num_patches,num_patches, 3)*resized_mask.squeeze(1).unsqueeze(-1).repeat(1,1,1,3).cpu().numpy()
-    feature_img_square = torch.from_numpy(feature_resized)
+    feature_resized = features_reduced.reshape(features_reduced.shape[0],num_patches,num_patches, n_components-1)*resized_mask.squeeze(1).unsqueeze(-1).repeat(1,1,1,n_components-1).cpu().numpy()
     # feature_img_square = (feature_img_square*255).to(torch.uint8)
     # feature_img = pad_image(feature_img_square, target_shape)
 
-    feature_img = (feature_img_square*255).numpy().astype(np.uint8)
+    feature_img = (feature_resized*255).astype(np.uint8)
     feature_imgs_list = []
     pad_start_time = time.time()
     for img in feature_img:
@@ -174,8 +210,11 @@ def vis_pca_mask_all(feature, mask, target_shape, pca):
     #     feature_imgs_list.append(feature_img_padded)
 
     feature_img = np.stack(feature_imgs_list)
-
-    return feature_img
+    
+    if cls_token_reduced is not None:
+        return feature_img, cls_token_img
+    else:
+        return feature_img, None
 
 # def pad_image(img, target_shape):
 #     img = img.permute(0, 3, 1, 2)
