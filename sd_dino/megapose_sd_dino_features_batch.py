@@ -23,6 +23,7 @@ from qrpca.decomposition import svdpca, qrpca
 from gpu_pca import IncrementalPCAonGPU
 import pickle
 
+# THIS SCRIPT IS BASED ON THE ORIGINAL SD-DINO IMPLEMENTATION: https://github.com/Junyi42/sd-dino 
 
 MASK = True
 VER = "v1-5"
