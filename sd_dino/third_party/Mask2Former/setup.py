@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # Copyright (c) Facebook, Inc. and its affiliates.
-
+import sys
+sys.path.append('/cluster/home/simschla/master_thesis/sd-dino-env/lib/python3.11/site-packages')
+sys.path.append('.')
 import glob
 import os
 from os import path
@@ -83,7 +85,7 @@ setup(
     packages=find_packages(exclude=("configs", "tests*")),
     python_requires=">=3.6",
     install_requires=[
-        "detectron2 @ https://github.com/facebookresearch/detectron2/archive/v0.6.zip",
+        # "detectron2 @ https://github.com/facebookresearch/detectron2/archive/v0.6.zip",
         "scipy>=1.7.3",
         "boto3>=1.21.25",
         "hydra-core==1.1.1",
@@ -91,7 +93,7 @@ setup(
         # see: https://github.com/omry/omegaconf/issues/939
         "omegaconf==2.1.1",
         "panopticapi @ https://github.com/cocodataset/panopticapi/archive/master.zip",
-        "lvis @ https://github.com/lvis-dataset/lvis-api/archive/master.zip",
+        # "lvis @ https://github.com/lvis-dataset/lvis-api/archive/master.zip",
     ],
     ext_modules=get_extensions(),
     cmdclass={"build_ext": torch.utils.cpp_extension.BuildExtension},

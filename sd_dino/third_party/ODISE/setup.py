@@ -9,7 +9,9 @@
 #
 # Written by Jiarui Xu
 # ------------------------------------------------------------------------------
-
+import sys
+sys.path.append('/cluster/home/simschla/master_thesis/sd-dino-env/lib/python3.11/site-packages')
+sys.path.append('.')
 import glob
 import os
 import shutil

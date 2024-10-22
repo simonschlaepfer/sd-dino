@@ -61,7 +61,7 @@ DIST = 'l2'
 #     prep_img = transform(img)
 #     return prep_img
 
-def compute_features(model, aug, extractor, views_batch, target_shape, only_dino, use_prefit_pca=False, n_components=4, add_cls_token=False):
+def compute_features(model, aug, extractor, views_batch, target_shape, only_dino, use_prefit_pca=False, n_components=4, add_cls_token=False, pca_dino_path='', pca_cls_path=''):
     FUSE_DINO = True
     img_size = 840 if DINOV2 else 244
     model_dict={'small':'dinov2_vits14',
@@ -80,14 +80,14 @@ def compute_features(model, aug, extractor, views_batch, target_shape, only_dino
 
     pca_load_time = time.time()
     if use_prefit_pca:
-        with open('/cluster/home/simschla/master_thesis/NOM-Diffusion/pca/pca_dino_model_501_7.pkl', 'rb') as file:
+        with open(pca_dino_path, 'rb') as file:
             pca = pickle.load(file)
     else:
         pca = sklearnPCA(n_components=n_components)
     # print("pca load time", time.time()-pca_load_time)
 
     if add_cls_token:
-        with open('/cluster/home/simschla/master_thesis/NOM-Diffusion/pca/pca_class_token_model_501_6.pkl', 'rb') as file:
+        with open(pca_cls_path, 'rb') as file:
             pca_cls = pickle.load(file)
 
     # pca = svdpca(n_component_ratio=n_components,device=device)
